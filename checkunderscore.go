@@ -10,7 +10,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-const doc = "checkunderscore is ..."
+const doc = "checkunderscore checks for returned value which is always ignored."
 
 // Analyzer is ...
 var Analyzer = &analysis.Analyzer{
@@ -32,8 +32,6 @@ func newFuncInfo(pos token.Pos, retLen int) *funcInfo {
 	return &funcInfo{pos, false, make([]bool, retLen)}
 }
 
-type isRetIgnored []bool
-
 func run(pass *analysis.Pass) (interface{}, error) {
 	funcInfos := make(map[string]*funcInfo)
 
@@ -51,7 +49,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.AssignStmt:
 			if call, ok := n.Rhs[0].(*ast.CallExpr); ok {
 				for i, l := range n.Lhs {
-					if !isIgnored(l) {
+					if isNotIgnored(l) {
 						funcInfos[funcName(call)].isRetHandled[i] = true
 					}
 				}
@@ -70,7 +68,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				}
 				if call, ok := exprs[0].(*ast.CallExpr); ok {
 					for i, id := range spec.Names {
-						if !isIgnored(id) {
+						if isNotIgnored(id) {
 							funcInfos[funcName(call)].isRetHandled[i] = true
 						}
 					}
@@ -95,11 +93,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-func isIgnored(e ast.Expr) bool {
+func isNotIgnored(e ast.Expr) bool {
 	if e, ok := e.(*ast.Ident); ok {
-		return e.Name == "_"
+		return e.Name != "_"
 	}
-	return false
+	return true
 }
 
 func funcName(n *ast.CallExpr) string {
