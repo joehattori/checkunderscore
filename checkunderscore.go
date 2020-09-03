@@ -37,10 +37,45 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
-	inspect.Preorder([]ast.Node{(*ast.FuncDecl)(nil)}, func(n ast.Node) {
-		fn := n.(*ast.FuncDecl)
-		if results := fn.Type.Results; results != nil {
-			funcInfos[fn.Name.Name] = newFuncInfo(fn.Pos(), len(results.List))
+	inspect.Preorder(nil, func(n ast.Node) {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for i, rhs := range n.Rhs {
+				rhs, _ := rhs.(*ast.FuncLit)
+				if rhs == nil {
+					continue
+				}
+				switch lhs := n.Lhs[i].(type) {
+				case *ast.Ident:
+					if results := rhs.Type.Results; results != nil {
+						funcInfos[lhs.Name] = newFuncInfo(n.Pos(), len(results.List))
+					}
+				}
+			}
+		case *ast.FuncDecl:
+			if results := n.Type.Results; results != nil {
+				funcInfos[n.Name.Name] = newFuncInfo(n.Pos(), len(results.List))
+			}
+		case *ast.GenDecl:
+			for _, spec := range n.Specs {
+				spec, _ := spec.(*ast.ValueSpec)
+				if spec == nil {
+					continue
+				}
+				exprs := spec.Values
+				if exprs == nil {
+					continue
+				}
+				for i, ex := range exprs {
+					ex, _ := ex.(*ast.FuncLit)
+					if ex == nil {
+						continue
+					}
+					if results := ex.Type.Results; results != nil {
+						funcInfos[spec.Names[i].Name] = newFuncInfo(n.Pos(), len(results.List))
+					}
+				}
+			}
 		}
 	})
 
@@ -50,7 +85,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			if call, ok := n.Rhs[0].(*ast.CallExpr); ok {
 				for i, l := range n.Lhs {
 					if isNotIgnored(l) {
-						funcInfos[funcName(call)].isRetHandled[i] = true
+						info, _ := funcInfos[funcName(call)]
+						if info == nil {
+							continue
+						}
+						info.isRetHandled[i] = true
 					}
 				}
 			}
@@ -69,7 +108,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				if call, ok := exprs[0].(*ast.CallExpr); ok {
 					for i, id := range spec.Names {
 						if isNotIgnored(id) {
-							funcInfos[funcName(call)].isRetHandled[i] = true
+							info, _ := funcInfos[funcName(call)]
+							if info == nil {
+								continue
+							}
+							info.isRetHandled[i] = true
 						}
 					}
 				}

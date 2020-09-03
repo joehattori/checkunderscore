@@ -13,24 +13,34 @@ func ex3() (int, int, int) { // OK
 }
 
 func call() int {
-	var a, b, c, d int
-
 	_ = ex1()
 
-	_, a = ex2()
+	_, a := ex2()
 	_, _ = ex2()
 
-	a, b, _ = ex3()
+	a, b, _ := ex3()
 	_, _, a = ex3()
 
-	_, b, c, d = ex4()
+	_, b, c, d := ex4()
 	a, b, _, _, _ = ex5()
 
 	t := t{}
 	a, _, _ = t.ex7()
 	a, b, c, d = t.ex8()
 
-	return a + b + c + d
+	var f = func() (int, int) { return 0, 1 } // want "f: 1st returned value is always ignored."
+	e, _ := f()
+
+	// TODO: this should also be warned
+	// s := s{}
+	// s.f = func() (int, int, int) { return 0, 1, 2 }
+	// _, b, c = s.f()
+
+	return a + b + c + d + e
+}
+
+type s struct {
+	f func() (int, int, int)
 }
 
 var _, b, c, d = ex4()
