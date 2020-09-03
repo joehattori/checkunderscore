@@ -23,91 +23,100 @@ var Analyzer = &analysis.Analyzer{
 }
 
 type funcInfo struct {
-	pos     token.Pos
-	called  bool
-	realRet []bool
+	pos          token.Pos
+	called       bool
+	isRetHandled []bool
 }
 
+func newFuncInfo(pos token.Pos, retLen int) *funcInfo {
+	return &funcInfo{pos, false, make([]bool, retLen)}
+}
+
+type isRetIgnored []bool
+
 func run(pass *analysis.Pass) (interface{}, error) {
-	infos := make(map[string]*funcInfo)
-	var calledFuncNames []string
-	lhsNames := make(map[string][][]string)
+	funcInfos := make(map[string]*funcInfo)
 
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	inspect.Preorder([]ast.Node{(*ast.FuncDecl)(nil)}, func(n ast.Node) {
+		fn := n.(*ast.FuncDecl)
+		if results := fn.Type.Results; results != nil {
+			funcInfos[fn.Name.Name] = newFuncInfo(fn.Pos(), len(results.List))
+		}
+	})
 
 	inspect.Preorder(nil, func(n ast.Node) {
 		switch n := n.(type) {
 		case *ast.AssignStmt:
 			if call, ok := n.Rhs[0].(*ast.CallExpr); ok {
-				funcName := call.Fun.(*ast.Ident).Obj.Name
-				lhsName := make([]string, 0)
-				for _, lhs := range n.Lhs {
-					lhsName = append(lhsName, lhs.(*ast.Ident).Name)
+				for i, l := range n.Lhs {
+					if !isIgnored(l) {
+						funcInfos[funcName(call)].isRetHandled[i] = true
+					}
 				}
-				lhsNames[funcName] = append(lhsNames[funcName], lhsName)
 			}
 		case *ast.CallExpr:
-			calledFuncNames = append(calledFuncNames, n.Fun.(*ast.Ident).Obj.Name)
-		case *ast.FuncDecl:
-			if n.Type.Results == nil {
-				return
-			}
-			returnValues := n.Type.Results.List
-			infos[n.Name.Name] = &funcInfo{n.Pos(), false, make([]bool, len(returnValues))}
+			funcInfos[funcName(n)].called = true
 		case *ast.GenDecl:
-			specs := n.Specs
-			for _, spec := range specs {
-				if spec, ok := spec.(*ast.ValueSpec); ok {
-					exprs := spec.Values
-					if exprs == nil {
-						continue
-					}
-					if call, ok := exprs[0].(*ast.CallExpr); ok {
-						funcName := call.Fun.(*ast.Ident).Obj.Name
-						lhsName := make([]string, 0)
-						for _, id := range spec.Names {
-							lhsName = append(lhsName, id.Name)
+			for _, spec := range n.Specs {
+				spec, _ := spec.(*ast.ValueSpec)
+				if spec == nil {
+					continue
+				}
+				exprs := spec.Values
+				if exprs == nil {
+					continue
+				}
+				if call, ok := exprs[0].(*ast.CallExpr); ok {
+					for i, id := range spec.Names {
+						if !isIgnored(id) {
+							funcInfos[funcName(call)].isRetHandled[i] = true
 						}
-						lhsNames[funcName] = append(lhsNames[funcName], lhsName)
 					}
 				}
 			}
 		}
 	})
 
-	for _, name := range calledFuncNames {
-		infos[name].called = true
-	}
-
-	for fnName, lhsName := range lhsNames {
-		info := infos[fnName]
-		for _, lhs := range lhsName {
-			for i, l := range lhs {
-				if l != "_" {
-					info.realRet[i] = true
-				}
-			}
-		}
-	}
-
-	for fn, info := range infos {
+	for funcName, info := range funcInfos {
 		if !info.called {
 			continue
 		}
-		for i, isReal := range info.realRet {
-			if !isReal {
-				var msg string
-				if len(info.realRet) == 1 {
-					msg = fmt.Sprintf("%s: returned value is always unhandled.\n", fn)
-				} else {
-					msg = fmt.Sprintf("%s: %s returned value is always unhandled.\n", fn, nthString(i))
-				}
-				pass.Reportf(info.pos, msg)
+		isRetHandled := info.isRetHandled
+		for i, handled := range isRetHandled {
+			if !handled {
+				pass.Reportf(info.pos, message(funcName, i, len(isRetHandled) == 1))
+				break
 			}
 		}
 	}
 
 	return nil, nil
+}
+
+func isIgnored(e ast.Expr) bool {
+	if e, ok := e.(*ast.Ident); ok {
+		return e.Name == "_"
+	}
+	return false
+}
+
+func funcName(n *ast.CallExpr) string {
+	switch fun := n.Fun.(type) {
+	case *ast.Ident:
+		return fun.Obj.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	}
+	return ""
+}
+
+func message(funcName string, nth int, singleRet bool) string {
+	if singleRet {
+		return fmt.Sprintf("%s: returned value is always ignored.\n", funcName)
+	}
+	return fmt.Sprintf("%s: %s returned value is always ignored.\n", funcName, nthString(nth))
 }
 
 func nthString(n int) string {
