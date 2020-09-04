@@ -3,7 +3,7 @@ package checkunderscore_test
 import (
 	"testing"
 
-	"checkunderscore"
+	"github.com/joehattori/checkunderscore"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
@@ -12,4 +12,3 @@ func TestAnalyzer(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, checkunderscore.Analyzer, "a")
 }
-
