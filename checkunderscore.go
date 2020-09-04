@@ -83,18 +83,17 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch n := n.(type) {
 		case *ast.AssignStmt:
 			if call, ok := n.Rhs[0].(*ast.CallExpr); ok {
+				info, _ := funcInfos[funcName(call)]
+				if info == nil {
+					return
+				}
+				info.called = true
 				for i, l := range n.Lhs {
 					if isNotIgnored(l) {
-						info, _ := funcInfos[funcName(call)]
-						if info == nil {
-							continue
-						}
 						info.isRetHandled[i] = true
 					}
 				}
 			}
-		case *ast.CallExpr:
-			funcInfos[funcName(n)].called = true
 		case *ast.GenDecl:
 			for _, spec := range n.Specs {
 				spec, _ := spec.(*ast.ValueSpec)
@@ -146,7 +145,9 @@ func isNotIgnored(e ast.Expr) bool {
 func funcName(n *ast.CallExpr) string {
 	switch fun := n.Fun.(type) {
 	case *ast.Ident:
-		return fun.Obj.Name
+		if fun.Obj != nil {
+			return fun.Obj.Name
+		}
 	case *ast.SelectorExpr:
 		return fun.Sel.Name
 	}
